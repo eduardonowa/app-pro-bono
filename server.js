@@ -17,12 +17,45 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // ======================================================
-//  Configuração Multer
+//  Caminho do "banco de dados" JSON
+// ======================================================
+const dbPath = path.join(__dirname, 'submissions.json');
+
+// Cria um array vazio caso o arquivo não exista
+if (!fs.existsSync(dbPath)) {
+  fs.writeFileSync(dbPath, '[]');
+}
+
+// ======================================================
+//  Funções utilitárias de DB
+// ======================================================
+function loadDB() {
+  try {
+    const content = fs.readFileSync(dbPath, 'utf8').trim();
+
+    if (!content) {
+      fs.writeFileSync(dbPath, '[]');
+      return [];
+    }
+
+    return JSON.parse(content);
+  } catch (err) {
+    console.error('DB corrompido. Resetando.', err);
+    fs.writeFileSync(dbPath, '[]');
+    return [];
+  }
+}
+
+function saveDB(data) {
+  fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+}
+
+// ======================================================
+//  Configuração Multer (uploads)
 // ======================================================
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
+  destination: (req, file, cb) => cb(null, uploadDir),
+
   filename: (req, file, cb) => {
     const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
@@ -31,27 +64,6 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage });
-
-// ======================================================
-//  Caminho do "banco de dados" JSON
-// ======================================================
-const dbPath = path.join(__dirname, 'submissions.json');
-
-// Se o arquivo não existir, criar vazio
-if (!fs.existsSync(dbPath)) {
-  fs.writeFileSync(dbPath, JSON.stringify([], null, 2));
-}
-
-// ======================================================
-//  Função utilitária para carregar/salvar
-// ======================================================
-function loadDB() {
-  return JSON.parse(fs.readFileSync(dbPath));
-}
-
-function saveDB(data) {
-  fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
-}
 
 // ======================================================
 //  A) RECEBER submissões (com arquivos)
@@ -75,8 +87,8 @@ app.post('/api/submissions', upload.array('documentos', 5), (req, res) => {
       id: newSubmission.id,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erro ao salvar submissão' });
+    console.error('Erro ao salvar submissão:', err);
+    res.status(500).json({ error: 'Erro ao salvar submissão.' });
   }
 });
 
@@ -96,31 +108,32 @@ app.get('/api/submissions/:id', (req, res) => {
   const item = db.find((sub) => sub.id === req.params.id);
 
   if (!item) {
-    return res.status(404).json({ error: 'Submissão não encontrada' });
+    return res.status(404).json({ error: 'Submissão não encontrada.' });
   }
 
   res.json(item);
 });
 
 // ======================================================
-//  DOWNLOAD de arquivos enviados
+//  Download de arquivos enviados
 // ======================================================
 app.get('/api/files/:filename', (req, res) => {
   const filePath = path.join(uploadDir, req.params.filename);
 
   if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'Arquivo não encontrado' });
+    return res.status(404).json({ error: 'Arquivo não encontrado.' });
   }
 
   res.download(filePath);
 });
 
 // ======================================================
-//  Health check para Render
+//  Health Check
 // ======================================================
 app.get('/', (req, res) => {
   res.send('API Online');
 });
 
+// ======================================================
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`Servidor rodando na porta ${port}`));
