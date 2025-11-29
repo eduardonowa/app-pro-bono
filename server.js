@@ -1,78 +1,126 @@
 const express = require('express');
+const multer = require('multer');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const multer = require('multer');
 
 const app = express();
-const PORT = process.env.PORT || 3000; // importante para Render
-
 app.use(cors());
 app.use(express.json());
 
-const submissionsFilePath = path.join(__dirname, 'submissions.json');
+// ======================================================
+//  Criar pasta uploads se não existir
+// ======================================================
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
 
+// ======================================================
+//  Configuração Multer
+// ======================================================
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/');
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
   },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, uniqueSuffix + '-' + file.originalname);
+  filename: (req, file, cb) => {
+    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, `${unique}${ext}`);
   },
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ storage });
 
-// POST: criar submissão
+// ======================================================
+//  Caminho do "banco de dados" JSON
+// ======================================================
+const dbPath = path.join(__dirname, 'submissions.json');
+
+// Se o arquivo não existir, criar vazio
+if (!fs.existsSync(dbPath)) {
+  fs.writeFileSync(dbPath, JSON.stringify([], null, 2));
+}
+
+// ======================================================
+//  Função utilitária para carregar/salvar
+// ======================================================
+function loadDB() {
+  return JSON.parse(fs.readFileSync(dbPath));
+}
+
+function saveDB(data) {
+  fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+}
+
+// ======================================================
+//  A) RECEBER submissões (com arquivos)
+// ======================================================
 app.post('/api/submissions', upload.array('documentos', 5), (req, res) => {
-  console.log('Dados do formulário recebidos:', req.body);
-  console.log('Arquivos recebidos:', req.files);
+  try {
+    const db = loadDB();
 
-  const newSubmission = {
-    id: Date.now(),
-    receivedAt: new Date().toISOString(),
-    formData: req.body,
-    files: req.files.map((file) => ({
-      filename: file.filename,
-      originalname: file.originalname,
-      path: file.path,
-      size: file.size,
-    })),
-  };
+    const newSubmission = {
+      id: Date.now().toString(),
+      data: req.body,
+      documentos: req.files.map((f) => f.filename),
+      createdAt: new Date().toISOString(),
+    };
 
-  fs.readFile(submissionsFilePath, 'utf8', (err, data) => {
-    if (err && err.code !== 'ENOENT') {
-      console.error(err);
-      return res.status(500).send('Erro ao ler o arquivo de submissões.');
-    }
+    db.push(newSubmission);
+    saveDB(db);
 
-    const submissions = data ? JSON.parse(data) : [];
-    submissions.push(newSubmission);
-
-    fs.writeFile(submissionsFilePath, JSON.stringify(submissions, null, 2), (err) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).send('Erro ao salvar a submissão.');
-      }
-      res.status(201).json(newSubmission);
+    res.status(201).json({
+      message: 'Solicitação registrada com sucesso!',
+      id: newSubmission.id,
     });
-  });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao salvar submissão' });
+  }
 });
 
-// GET: listar submissões
+// ======================================================
+//  B) LISTAR todas as submissões
+// ======================================================
 app.get('/api/submissions', (req, res) => {
-  fs.readFile(submissionsFilePath, 'utf8', (err, data) => {
-    if (err && err.code !== 'ENOENT') {
-      console.error(err);
-      return res.status(500).send('Erro ao ler o arquivo de submissões.');
-    }
-
-    const submissions = data ? JSON.parse(data) : [];
-    res.json(submissions);
-  });
+  const db = loadDB();
+  res.json(db);
 });
 
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
+// ======================================================
+//  C) LISTAR uma submissão específica
+// ======================================================
+app.get('/api/submissions/:id', (req, res) => {
+  const db = loadDB();
+  const item = db.find((sub) => sub.id === req.params.id);
+
+  if (!item) {
+    return res.status(404).json({ error: 'Submissão não encontrada' });
+  }
+
+  res.json(item);
 });
+
+// ======================================================
+//  DOWNLOAD de arquivos enviados
+// ======================================================
+app.get('/api/files/:filename', (req, res) => {
+  const filePath = path.join(uploadDir, req.params.filename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Arquivo não encontrado' });
+  }
+
+  res.download(filePath);
+});
+
+// ======================================================
+//  Health check para Render
+// ======================================================
+app.get('/', (req, res) => {
+  res.send('API Online');
+});
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => console.log(`Servidor rodando na porta ${port}`));
