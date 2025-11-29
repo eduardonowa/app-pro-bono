@@ -5,7 +5,7 @@ const path = require('path');
 const multer = require('multer');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000; // importante para Render
 
 app.use(cors());
 app.use(express.json());
@@ -24,6 +24,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+// POST: criar submissão
 app.post('/api/submissions', upload.array('documentos', 5), (req, res) => {
   console.log('Dados do formulário recebidos:', req.body);
   console.log('Arquivos recebidos:', req.files);
@@ -56,6 +57,19 @@ app.post('/api/submissions', upload.array('documentos', 5), (req, res) => {
       }
       res.status(201).json(newSubmission);
     });
+  });
+});
+
+// GET: listar submissões
+app.get('/api/submissions', (req, res) => {
+  fs.readFile(submissionsFilePath, 'utf8', (err, data) => {
+    if (err && err.code !== 'ENOENT') {
+      console.error(err);
+      return res.status(500).send('Erro ao ler o arquivo de submissões.');
+    }
+
+    const submissions = data ? JSON.parse(data) : [];
+    res.json(submissions);
   });
 });
 
